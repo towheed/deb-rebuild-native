@@ -1,2 +1,2 @@
 # rebuild-native
-Rebuild Debian packages for GCC -march=native option
+Rebuild Debian packages using GCC -march=native option
