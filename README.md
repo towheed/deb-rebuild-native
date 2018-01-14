@@ -10,3 +10,7 @@ eg:
 Using su: su -p -c "script"
 
 Using sudo: sudo -E script
+
+Pass -h or --help option for help
+
+sudo -E ./rebuild-native.sh --help
