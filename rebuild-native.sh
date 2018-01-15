@@ -1288,7 +1288,11 @@ main() {
 	esac
 
 	# Install our newly built packages
-	install_package
+	# For now, simply do an upgrade, but this has the
+	# potential to pull in other upgradeable packages
+	# from the sources.list
+	apt-get update 2>&1
+	apt-get upgrade 2>&1
 
 	exit
 
