@@ -29,7 +29,7 @@ export PS4='+$LINENO: $FUNCNAME: '
 
 # Declare our vars
 version="0.45.0-beta"									# Version information
-app_name="apt-rebuild"									# Name of application
+app_name="rebuild-native"								# Name of application
 march_opt="-march=native"								# gcc's march option
 mtune_opt="-mtune=native"								# gcc's mtune option
 optimize_opt="-O2"										# gcc's optimization level
