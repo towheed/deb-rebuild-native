@@ -4,7 +4,7 @@ export PS4='+$LINENO: $FUNCNAME: '
 
 # Set tab=4
 
-# (c) 2017 Towheed Mohammed <towheedm@yahoo.com>
+# (c) 2017, 2018 Towheed Mohammed <towheedm@yahoo.com>
 #
 #
 # This package is free software; you can redistribute it and/or modify
@@ -27,9 +27,8 @@ export PS4='+$LINENO: $FUNCNAME: '
 
 # TODO Ensure only one instance of this script is running
 
-
 # Declare our vars
-version="0.44.0-beta"									# Version information
+version="0.45.0-beta"									# Version information
 app_name="apt-rebuild"									# Name of application
 march_opt="-march=native"								# gcc's march option
 mtune_opt="-mtune=native"								# gcc's mtune option
@@ -666,17 +665,10 @@ install_package() {
 	# Remove packages excluded from building
 	# eg: GCC and Linux kernel packages
 	# See fetch_source function
-
-	echo -e "\nBuild List:\n$build_list"
-	echo -e "\nNobuild List:\n$no_build_list"
-	
 	for pkg in $no_build_list; do
 		build_list=${build_list/$pkg/}
 	done
 
-	echo -e "\nBuild list after removing nobuild list:$build_list"
-	
-	
 	# Get package names from build_list
 	tmp=
 	for pkg in $build_list; do
@@ -684,31 +676,28 @@ install_package() {
 		tmp="$tmp$pkg "
 	done
 
-	echo -e "Pkgnames from build_list:\n$tmp"
-	
 	# Remove failed-to-build packages
 	if [[ -s $build_fail_fname ]]; then
 		while read -r line; do
-			src=${line%=*}
-			src=${src##* }								# Get name of source package
-			pkg=${pkg_src_map_list%=$src *}				# Get binary package built by
-			pkg=${pkg##* }								# this source package
-			tmp=${tmp/$pkg }							# Remove package from list
+			if [[ -n $line ]]; do
+				src=${line%=*}
+				src=${src##* }								# Get name of source package
+				pkg=${pkg_src_map_list%=$src *}				# Get binary package built by
+				pkg=${pkg##* }								# this source package
+				tmp=${tmp/$pkg }							# Remove package from list
+			fi
 		done < "$build_fail_fname"
 	fi
 
-	echo -e "\nPackages to install after removing failed-to-build:\n"
-	tr ' ' '\n' <<< "$tmp"
-	
-	# TODO Bail if tmp is empty
-	
+	# No packages to install/upgrade
+	[[ -z $tmp ]] && return 100
+
 	echo -e "\nThe following newly built packages will be installed/upgraded:\n$tmp\n"
 	get_confirmation || return
 
-	# For now just simulate
-	# Allow user to make the final decision
+	# Allow user to review and make the final decision
 	apt-get update 2>&1
-	apt-get -s install "$tmp" 2>&1
+	apt-get install "$tmp" 2>&1
 
 }
 
@@ -1288,11 +1277,7 @@ main() {
 	esac
 
 	# Install our newly built packages
-	# For now, simply do an upgrade, but this has the
-	# potential to pull in other upgradeable packages
-	# from the sources.list
-	apt-get update 2>&1
-	apt-get upgrade 2>&1
+	install_package || echo -e "No packages to install/upgrade"
 
 	exit
 
