@@ -28,7 +28,7 @@ export PS4='+$LINENO: $FUNCNAME: '
 # TODO Ensure only one instance of this script is running
 
 # Declare our vars
-version="0.45.0-beta"									# Version information
+version="0.46.10-beta"									# Version information
 app_name="rebuild-native"								# Name of application
 march_opt="-march=native"								# gcc's march option
 mtune_opt="-mtune=native"								# gcc's mtune option
@@ -88,6 +88,7 @@ show_help() {
 	# message as the first parameter
 	
 	# TODO Add retry command to retry failed builds
+	# TODO Add simulate option
 
 	[[ -n $1 ]] && echo -e "$1\n"
 	cat <<-END_HELP
@@ -189,7 +190,7 @@ start_logfile() {
 	# TODO Needs refining
 	# TODO Acknowledge XON/XOFF when sent from kybd
 
-	trap "rm -f $tmp_dir/pipe$$; gzip -f $main_log_fname; exit" EXIT INT
+	trap "rm -f $tmp_dir/pipe$$; gzip -f $main_log_fname; exit" EXIT
 	[[ ! -p $tmp_dir/pipe$$ ]] && mkfifo "$tmp_dir"/pipe$$
 	tee -a "$1" < "$tmp_dir"/pipe$$ &
 	logfile_pid=$!										# Save PID of background 'tee' process
@@ -394,7 +395,9 @@ fetch_source() {
 		# the same source package. The following breaks if that changes
 		elif [[ $source_list = *$tmp=* ]]; then
 			echo "  Source package $tmp already downloaded"
-			pkg_src_map_list="$pkg_src_map_list$pkg=$tmp "				# Map binary package to it's source package
+			# Leading space for first source needed for build_package function
+			#----------------------------------v-------------
+			pkg_src_map_list="$pkg_src_map_list $pkg=$tmp "				# Map binary package to it's source package
 		else
 			echo "  Found source package '$tmp', fetching..."
 			let r_cnt=0
@@ -421,12 +424,14 @@ fetch_source() {
 			if [[ -z $src_version ]]; then
 				echo "Failed to get version for source package $tmp...not building" | tee -a "$build_fail_fname"
 				nv_list="$nv_list$pkg@$tmp "
-				no_build_list="$no_build_list$pkg=$version/$release "		# Add to list of packages excluded from building
+				no_build_list="$no_build_list$pkg=$version/$release "	# Add to list of packages excluded from building
 			else
 				# Leading space for first source needed for build_package function
 				#------------------------v-----------------------
 				source_list="$source_list $tmp=$src_version/$release"
-				pkg_src_map_list="$pkg_src_map_list$pkg=$tmp "			# Map binary package to it's source package
+				# Leading space for first package needed for build_package function
+				#----------------------------------v-------------
+				pkg_src_map_list="$pkg_src_map_list $pkg=$tmp "			# Map binary package to it's source package
 			fi
 		fi
 	done
@@ -456,6 +461,10 @@ build_package() {
 	local log_file												# Log file for build output
 	local release
 	local use_release
+	local bin_pkg
+	local bin_version
+	local bin_release
+	local old_PWD
 	
 	# Set these environment variables
 	export DEBFULLNAME="$deb_name"
@@ -471,6 +480,7 @@ build_package() {
 	# source_list. We then install the build dependencies for this
 	# source and it's corresponding version and release
 
+	old_PWD=$PWD
 	for src_dir in $build_dir/*; do
 		[[ ! -d $src_dir ]] && continue
 		cd $src_dir
@@ -482,7 +492,22 @@ build_package() {
 		release=${tmp#*/}										# Get release of source package
 
 		echo -e "\nGetting build dependencies for $src=$version from $release:" | tee -a "$main_log_fname"
-		get_apt_list build-dep "$src=$version" "$release"		# Get list of build dependencies
+
+		# We retrieve the build dependencies for a binary package and not
+		# a source package. We first find as binary package built by this
+		# source package and get the build dependencies for it. All binary
+		# packages built by this source package will have the same
+		# version and build dependencies. It does not matter which binary
+		# package we chose
+
+		bin_pkg=${pkg_src_map_list%=$src *}						# Find a binary package built
+		bin_pkg=${bin_pkg##* }									# by this source package
+		tmp=$(grep "$bin_pkg=" <<< "$build_list")				# Extract version and release
+		tmp=${tmp#*$bin_pkg=}									# from build_list
+		bin_version=${tmp%/*}									# Get version of binary package
+		bin_release=${tmp#*/}									# Get release of binary package
+
+		get_apt_list build-dep "$bin_pkg=$bin_version" "$bin_release"		# Get list of build dependencies
 
 		if [[ $? = "0" ]]; then
 			if [[ -z $apt_list ]]; then
@@ -497,8 +522,8 @@ build_package() {
 				#       --allow-change-held-packages option is passed, which has
 				#       the potential to break the system. How do we handle this?
 				$use_release && \
-				apt-get --ignore-hold -y -t $release build-dep $src=$version 2>&1 | tee -a "$main_log_fname" || \
-				apt-get --ignore-hold -y build-dep $src=$version 2>&1 | tee -a "$main_log_fname"
+				apt-get --ignore-hold -y -t $bin_release build-dep $bin_pkg=$bin_version 2>&1 | tee -a "$main_log_fname" || \
+				apt-get --ignore-hold -y build-dep $bin_pkg=$bin_version 2>&1 | tee -a "$main_log_fname"
 
 				# Redundant code should apt-get fail for some reason
 				# between the call in get_apt_list and this one
@@ -509,6 +534,7 @@ build_package() {
 		else
 			echo "Failed to satisfy build dependencies for $src=$version/$release...not building" | tee -a "$build_fail_fname" "$main_log_fname"
 			continue
+
 		fi
 
 		# Some packages, such as x11proto-composite=1:0.4.2-2 may have a
@@ -526,7 +552,7 @@ build_package() {
 		log_file="$log_dir/$src-$version.log"					# Build log filename
 		echo -e "\nStarted build of $src=$version/$release on $(date)\n  Logfile is $log_file.gz" | tee -a "$main_log_fname"
 		su $user -c "dpkg-buildpackage -i -F -us -uc" 2>&1 | tee "$log_file"
-		
+
 		if [[ ${PIPESTATUS[0]} = "0" ]]; then
 			echo "Finished (success) on $(date)" | tee -a "$main_log_fname"
 		else
@@ -551,6 +577,8 @@ build_package() {
 		[[ -w /proc/sys/vm/drop_caches ]] && \
 		sync && echo 3 > /proc/sys/vm/drop_caches
 	done
+
+	cd $old_PWD
 
 }
 
@@ -679,7 +707,7 @@ install_package() {
 	# Remove failed-to-build packages
 	if [[ -s $build_fail_fname ]]; then
 		while read -r line; do
-			if [[ -n $line ]]; do
+			if [[ -n $line ]]; then
 				src=${line%=*}
 				src=${src##* }								# Get name of source package
 				pkg=${pkg_src_map_list%=$src *}				# Get binary package built by
@@ -697,7 +725,7 @@ install_package() {
 
 	# Allow user to review and make the final decision
 	apt-get update 2>&1
-	apt-get install "$tmp" 2>&1
+	apt-get install $tmp 2>&1
 
 }
 
@@ -819,7 +847,7 @@ create_pkg_depend_list() {
 		# Remove pkg from the list of dependencies. This will reduce the time
 		# it takes when we call get_package_version below.
 		tmp=$(apt-cache --no-pre-depends --no-suggests --no-conflicts --no-replaces --no-breaks --no-enhances \
-						--no-recommends --recurse $installed_option depends "$pkg=$c_version" | grep -Ev "[[:blank:]]|^<.*>$|$pkg")
+						--no-recommends --recurse $installed_option depends "$pkg=$c_version" | grep -Ev "[[:blank:]]|^<.*>$|^$pkg$")
 		depend_list="$depend_list$tmp "
 		let count+=1
 	done
