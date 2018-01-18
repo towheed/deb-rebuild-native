@@ -55,7 +55,8 @@ Description of Options:
 					warnings and errors.
 					
 	-d, --dependencies		Passing this option, will also cause the build system to build all dependent
-					packages also. This has the potential to increase the number of built packages 						greatly.
+					packages also. This has the potential to increase the number of built packages
+					greatly.
 	
 	-k, --keep-source		Pass this option if you want to keep the downloaded source files.
 					All source files are removed by default after the build process completes.
@@ -70,7 +71,8 @@ Description of Options:
 	
 	-r, --target-release=release	Pass this option to tell the build system, which Debian release you are building for.
 	
-	-n, --name="full-name"		This is the full name of the user and is used for the changelogs. This MUST be 						quoted. Defaults to the author's full name.
+	-n, --name="full-name"		This is the full name of the user and is used for the changelogs. This MUST be
+					quoted. Defaults to the author's full name.
 	
 	-e, --email=user-email		This the e-mail address of the user and is also used for the changelogs.
 					Defaults to the authors e-mail address.
@@ -78,7 +80,8 @@ Description of Options:
 
 Description of commands:
 
-	install [pkg1] [pkg2] ...	Rebuild and install the given packages. The package names must be valid Debian 						package names. This is checked by the script before any further processing takes
+	install [pkg1] [pkg2] ...	Rebuild and install the given packages. The package names must be valid Debian
+					package names. This is checked by the script before any further processing takes
 					place.
 	
 	upgrade				Rebuild all upgradeable packages, if any. For a list of upgradeable packages,
