@@ -28,7 +28,7 @@ export PS4='+$LINENO: $FUNCNAME: '
 # TODO Ensure only one instance of this script is running
 
 # Declare our vars
-version="0.46.10-beta"									# Version information
+version="0.46.20-beta"									# Version information
 app_name="rebuild-native"								# Name of application
 march_opt="-march=native"								# gcc's march option
 mtune_opt="-mtune=native"								# gcc's mtune option
@@ -933,9 +933,10 @@ sanitize_build_list() {
 	tags=$(debtags tagsearch metapackage dummy | cut -d'-' -f1)
 
 	tmp=
-	let count=1
+	let count=0
 	num_pkg="$#"
 	for pkg in $@; do
+		let count+=1
 		echo "($count/$num_pkg) Checking $pkg"
 		pkg=${pkg%/*}															# Remove release from pkg
 		c_version=${pkg#*=}														# Candidate version of pkg
@@ -965,7 +966,6 @@ sanitize_build_list() {
 		# already built if the candidate version contains the build suffix
 		[[ $c_version = *$suffix* ]] && \
 		{ build_list=$(grep -v "^$pkg=$c_version" <<< "$build_list") ; tmp="$tmp$pkg=$c_version-(already_built) " ; echo "$spc   Found: $pkg=$c_version - already built" ; }
-		let count+=1
 	done
 
 	if [[ -n $tmp ]]; then
