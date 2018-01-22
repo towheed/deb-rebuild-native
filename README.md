@@ -10,31 +10,24 @@ NOTE: If you use this script to build a multitude of packages at once,
 
 All build, status and log files are under $HOME/rebuild-native.
 
-Usage:
-
+## Usage
 This BASH script must be run with root privileges. The --preserve-environment
 option MUST be passed to the gain-root-command used.
 
-eg:
-
-Using su:
-
+### Using su:
 	su -p -c "script"
-
-Using sudo:
-
+### Using sudo:
 	sudo -E script
-
 To run the script, issue the command (using su or sudo):
 
 	./path/to/script/rebuild-native.sh [options] ... command [pkg1] [pkg2] ...
-
-Help is available by passing the -h or --help option:
+### Help
+Help is available by passing the -h or --help option (using the gain-root-command):
 
 	./path/to/script/rebuild-native.sh -h, or
 	./path/to/script/rebuild-native.sh --help
 
-Description of Options:
+### Description of Options
 
 	-h, --help			Show help message
 	-V, --version			Show version information
@@ -78,7 +71,7 @@ Description of Options:
 					Defaults to the authors e-mail address.
 	
 
-Description of commands:
+### Description of commands
 
 	install [pkg1] [pkg2] ...	Rebuild and install the given packages. The package names must be valid Debian
 					package names. This is checked by the script before any further processing takes
@@ -93,7 +86,7 @@ Description of commands:
 					Packages that have already been built, will not be rebuilt.
 	
 
-Logging:
+### Logging
 
 All output from the script is logged. All logfiles are compressed with gzip. All logfile are kept in $HOME/rebuild-native/log. The main log (aptly named main.log.gz) log all output from the script, with the exception of the build output from the package builds. The build output are logged to src_name-src_version.log.gz, where src_name is the name of the source package built and the src_version is the version of the source package. Note though that the source names and version may not necessarily be similar in any way to the binary (.deb) packages built by them.
 
@@ -102,7 +95,7 @@ To view a log file, eg main.log.gz, issue the command:
 	gunzip -c $HOME/rebuild-native/log/main.log.gz | less
 
 
-Other files:
+#### Other files
 
 A list of failed builds is kept in $HOME/rebuild-native/build.fail
 
