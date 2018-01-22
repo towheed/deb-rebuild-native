@@ -36,7 +36,8 @@ optimize_opt="-O2"										# gcc's optimization level
 silent_opt=false										# make's slient build option
 depend_opt=false										# Build dependencies also. Do not build dependencies by default
 keep_source_opt=false									# Keep downloaded source files
-keep_dbgsym_opt=false									# Keep dbgsym packages
+dbgsym_opt=false										# Keep dbgsym packages
+checks_opt=false										# Run package tests during the build process
 verbose_opt=false										# Be verbose. By default, some status messages are shown. If set, the output from
 														# the external commands such as 'apt-get' are shown instead
 release_opt=""											# Suite to search for available package
@@ -115,7 +116,10 @@ show_help() {
 		-s, --silent                              - Pass -s option to 'make'
 		-d, --dependencies                        - Build dependencies also
 		-k, --keep-source                         - Keep downloaded source files
-		-b, --keep-dbgsym                         - Keep dbgsym packages
+		-b, --build-dbgsym                        - Build dbgsym packages also
+		                                            Defaults to not building
+		-c, --run-checks                          - Run tests during package build
+		                                            Defaults to skipping the package tests
 		-v, --verbose                             - Show what is being done (UNIMPLEMENTED)
 
 		-r, --target-release=release              - Specify the target release. (UNIMPLEMENTED)
@@ -373,9 +377,9 @@ fetch_source() {
 		version=${pkg#*=}
 		version=${version%/*}											# Get version
 		pkg=${pkg%=*}													# Get name of package
-		tmp=$(apt-get -s -t $release source $pkg=$version)
+		tmp=$(apt-get -q0 -s -t $release source $pkg=$version 2>&1)
 		if [[ $? = "100" ]]; then
-			echo -e "\nUnable to find a source package for $pkg=$version/$release"
+			echo -e "\nUnable to find a source package for $pkg=$version/$release...not building"
 			no_source_list="$no_source_list$pkg=$version/$release "
 			no_build_list="$no_build_list$pkg=$version/$release "		# Add to list of packages excluded from building
 			continue
@@ -404,7 +408,7 @@ fetch_source() {
 			while true; do
 				# We download all sources as a regular user to
 				# prevent the 'unsandboxed' warning for some sources
-				su $user -c "apt-get -y -t $release source $pkg=$version" 2>&1 && break
+				su $user -c "apt-get -q0 -y -t $release source $pkg=$version" 2>&1 && break
 				if (( $r_cnt == 2 )); then
 					echo -e "\nFailed to download source package $tmp 3 times...not retrying anymore"
 					fail_dl_list="$fail_dl_list$tmp "					# Add the source package to the failed-to-download list
@@ -449,6 +453,31 @@ fetch_source() {
 
 }
 
+get_build_depends() {
+	# Get the list of build dependencies for the source
+	# that we are about to build
+	# We pass these positional parameters:
+	# - $1: binary package built by the source package
+	# - $2: version of the binary package
+	# - $3: Release of the binary package
+
+	# Get list of build dependencies and return if we succeeded
+	get_apt_list build-dep "$1=$2" "$3" && return
+
+	# APT 'build-dep' command does not resolve all build dependency conflicts
+	# If this is the case because the above call to get_apt_list fails, then
+	# remove all previously installed build dependencies and retry
+	apt-get -y purge $(tr '\n' ' ' < "$build_dep_fname") 2>&1			# Remove previously installed build dependencies
+	true > "$build_dep_fname"											# Clear the contents of build.depend
+	get_apt_list build-dep "$1=$2" "$3"									# Retry
+
+	# At this point, we should have satisfied the build dependencies
+	# If not, then it may be because we have packages on hold, or
+	# previously installed conflicting packages
+	return $?
+
+}
+
 build_package() {
 	# Now we start the re-build process
 
@@ -473,6 +502,8 @@ build_package() {
 	export DEB_CXXFLAGS_APPEND="$DEB_CFLAGS_APPEND"
 	export DEB_OBJCFLAGS_APPEND="$DEB_CFLAGS_APPEND"
 	export DEB_OBJCXXFLAGS_APPEND="$DEB_CXXFLAGS_APPEND"
+	checks_opt || export DEB_BUILD_OPTIONS="nocheck "
+	dbgsym_opt || export DEB_BUILD_OPTIONS+="noddebs"
 	$silent_opt && export MAKEFLAGS="-s"
 
 	# Iterate over the directories in $build_dir and extract the source
@@ -498,16 +529,15 @@ build_package() {
 		# source package and get the build dependencies for it. All binary
 		# packages built by this source package will have the same
 		# version and build dependencies. It does not matter which binary
-		# package we chose
-
+		# package we choose
 		bin_pkg=${pkg_src_map_list%=$src *}						# Find a binary package built
 		bin_pkg=${bin_pkg##* }									# by this source package
-		tmp=$(grep "$bin_pkg=" <<< "$build_list")				# Extract version and release
+		tmp=$(grep "^$bin_pkg=" <<< "$build_list")				# Extract version and release
 		tmp=${tmp#*$bin_pkg=}									# from build_list
 		bin_version=${tmp%/*}									# Get version of binary package
 		bin_release=${tmp#*/}									# Get release of binary package
 
-		get_apt_list build-dep "$bin_pkg=$bin_version" "$bin_release"		# Get list of build dependencies
+		get_build_depends "$bin_pkg" "$bin_version" "$bin_release"	# Get list of build dependencies
 
 		if [[ $? = "0" ]]; then
 			if [[ -z $apt_list ]]; then
@@ -522,8 +552,8 @@ build_package() {
 				#       --allow-change-held-packages option is passed, which has
 				#       the potential to break the system. How do we handle this?
 				$use_release && \
-				apt-get --ignore-hold -y -t $bin_release build-dep $bin_pkg=$bin_version 2>&1 | tee -a "$main_log_fname" || \
-				apt-get --ignore-hold -y build-dep $bin_pkg=$bin_version 2>&1 | tee -a "$main_log_fname"
+				apt-get --ignore-hold -q0 -y -t $bin_release build-dep $bin_pkg=$bin_version 2>&1 | tee -a "$main_log_fname" || \
+				apt-get --ignore-hold -q0 -y build-dep $bin_pkg=$bin_version 2>&1 | tee -a "$main_log_fname"
 
 				# Redundant code should apt-get fail for some reason
 				# between the call in get_apt_list and this one
@@ -536,7 +566,7 @@ build_package() {
 			continue
 
 		fi
-
+if false; then
 		# Some packages, such as x11proto-composite=1:0.4.2-2 may have a
 		# debian/changelog.dch present. Rename it to debian/changelog to
 		# prevent failing to update the changlogs
@@ -576,6 +606,7 @@ build_package() {
 		# Do not do this if we are chrooted or in a container
 		[[ -w /proc/sys/vm/drop_caches ]] && \
 		sync && echo 3 > /proc/sys/vm/drop_caches
+fi
 	done
 
 	cd $old_PWD
@@ -615,11 +646,6 @@ move_files() {
 			done
 		done < "$build_fail_fname"
 	fi
-
-	# Remove dbgsym packages
-	$keep_dbgsym_opt || \
-	{ echo -e "\nRemoving all 'dbgsym' packages (no --keep-dbgsym option passed)" ; \
-	  rm -f "$build_dir/"*dbgsym* ; }
 
 	# Move buildinfo files to buildinfo_dir
 	tmp=
@@ -676,7 +702,7 @@ cleanup() {
 		get_confirmation || return 100
 		if apt-get -y purge $(tr '\n' ' ' < "$build_dep_fname"); then
 			rm -f "$build_dep_fname"
-			apt-get -y autoremove
+			# apt-get -y autoremove
 		else
 			return 200
 		fi
@@ -1278,7 +1304,7 @@ main() {
 	else
 		echo -e "\nAll source(s) were successfully built"
 	fi
-
+if false; then
 	# Move files/packages to their final destinations
 	move_files
 	case $? in
@@ -1292,7 +1318,7 @@ main() {
 			bail_out "Failed to move some package(s)...bailing"
 		;;
 	esac
-
+fi
 	# Leave the system in a prestine state
 	cleanup
 	case $? in
@@ -1303,10 +1329,10 @@ main() {
 			echo -e "\nSome build dependencies were not removed"
 		;;
 	esac
-
+if false; then
 	# Install our newly built packages
 	install_package || echo -e "No packages to install/upgrade"
-
+fi
 	exit
 
 }
@@ -1411,8 +1437,11 @@ while true; do
 		k|keep-source)
 			keep_source_opt=true
 		;;
-		b|keep-dbgsym)
-			keep_dbgsym_opt=true
+		b|build-dbgsym)
+			dbgsym_opt=true
+		;;
+		c|run-checks)
+			checks_opt=true
 		;;
 		v|verbose)
 			verbose_opt=true
