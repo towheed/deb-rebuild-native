@@ -379,7 +379,7 @@ fetch_source() {
 		pkg=${pkg%=*}													# Get name of package
 		tmp=$(apt-get -q0 -s -t $release source $pkg=$version 2>&1)
 		if [[ $? = "100" ]]; then
-			echo -e "\nUnable to find a source package for $pkg=$version/$release...not building"
+			echo "  Unable to find a source package for $pkg=$version/$release...not building"
 			no_source_list="$no_source_list$pkg=$version/$release "
 			no_build_list="$no_build_list$pkg=$version/$release "		# Add to list of packages excluded from building
 			continue
