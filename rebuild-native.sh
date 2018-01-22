@@ -566,7 +566,7 @@ build_package() {
 			continue
 
 		fi
-if false; then
+
 		# Some packages, such as x11proto-composite=1:0.4.2-2 may have a
 		# debian/changelog.dch present. Rename it to debian/changelog to
 		# prevent failing to update the changlogs
@@ -606,7 +606,7 @@ if false; then
 		# Do not do this if we are chrooted or in a container
 		[[ -w /proc/sys/vm/drop_caches ]] && \
 		sync && echo 3 > /proc/sys/vm/drop_caches
-fi
+
 	done
 
 	cd $old_PWD
@@ -1304,7 +1304,7 @@ main() {
 	else
 		echo -e "\nAll source(s) were successfully built"
 	fi
-if false; then
+
 	# Move files/packages to their final destinations
 	move_files
 	case $? in
@@ -1318,7 +1318,7 @@ if false; then
 			bail_out "Failed to move some package(s)...bailing"
 		;;
 	esac
-fi
+
 	# Leave the system in a prestine state
 	cleanup
 	case $? in
@@ -1329,10 +1329,10 @@ fi
 			echo -e "\nSome build dependencies were not removed"
 		;;
 	esac
-if false; then
+
 	# Install our newly built packages
 	install_package || echo -e "No packages to install/upgrade"
-fi
+
 	exit
 
 }
