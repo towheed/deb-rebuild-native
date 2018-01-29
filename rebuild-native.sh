@@ -502,8 +502,8 @@ build_package() {
 	export DEB_CXXFLAGS_APPEND="$DEB_CFLAGS_APPEND"
 	export DEB_OBJCFLAGS_APPEND="$DEB_CFLAGS_APPEND"
 	export DEB_OBJCXXFLAGS_APPEND="$DEB_CXXFLAGS_APPEND"
-	checks_opt || export DEB_BUILD_OPTIONS="nocheck "
-	dbgsym_opt || export DEB_BUILD_OPTIONS+="noddebs"
+	$checks_opt || export DEB_BUILD_OPTIONS="nocheck "
+	$dbgsym_opt || export DEB_BUILD_OPTIONS+="noddebs"
 	$silent_opt && export MAKEFLAGS="-s"
 
 	# Iterate over the directories in $build_dir and extract the source
