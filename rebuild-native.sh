@@ -467,7 +467,7 @@ get_build_depends() {
 	# APT 'build-dep' command does not resolve all build dependency conflicts
 	# If this is the case because the above call to get_apt_list fails, then
 	# remove all previously installed build dependencies and retry
-	apt-get -y purge $(tr '\n' ' ' < "$build_dep_fname") 2>&1			# Remove previously installed build dependencies
+	apt-get -y remove $(tr '\n' ' ' < "$build_dep_fname") 2>&1			# Remove previously installed build dependencies
 	true > "$build_dep_fname"											# Clear the contents of build.depend
 	get_apt_list build-dep "$1=$2" "$3"									# Retry
 
