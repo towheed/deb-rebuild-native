@@ -90,6 +90,7 @@ show_help() {
 	
 	# TODO Add retry command to retry failed builds
 	# TODO Add simulate option
+	# TODO Add emergency repair command
 
 	[[ -n $1 ]] && echo -e "$1\n"
 	cat <<-END_HELP
@@ -481,7 +482,6 @@ get_build_depends() {
 build_package() {
 	# Now we start the re-build process
 
-	# TODO Add option to prevent building of dbgsym packages
 	# TODO Only build packages from source_list. Do not traverse
 	#      the entire build dir
 
