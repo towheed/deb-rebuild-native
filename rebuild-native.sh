@@ -28,7 +28,7 @@ export PS4='+$LINENO: $FUNCNAME: '
 # TODO Ensure only one instance of this script is running
 
 # Declare our vars
-version="0.46.20-beta"									# Version information
+version="0.47.0-beta"									# Version information
 app_name="rebuild-native"								# Name of application
 march_opt="-march=native"								# gcc's march option
 mtune_opt="-mtune=native"								# gcc's mtune option
@@ -80,6 +80,8 @@ repo_dir="/srv/local-apt-repository"					# Local repo directory
 build_dep_fname="$HOME/$app_name/build.depend"			# List of build dependencies we installed
 build_fail_fname="$HOME/$app_name/build.fail"			# List of packages that failed to build
 main_log_fname="$log_dir/main.log"
+install_list_fname="$main_dir/install-list-before.list"	# Our initial install_list
+deinstall_list_fname="$main_dir/deinstall-list-before.list"	# Our initial deinstall_list
 
 logfile_pid=""											# PID of the logfile process
 
@@ -281,9 +283,12 @@ get_apt_list() {
 }
 
 get_package_version() {
-	# Get the version and target release of the package to build
-	# The list of packages for which we are to retrieve the version is
-	# passed in via $@
+	# Get the version and target release of packages
+	# Positional parameters:
+	# - $1 Version to retrieve
+	#      i=installed version
+	#      c=candidate version
+	# - $2 List of packages
 
 	local version
 	local release
@@ -296,29 +301,41 @@ get_package_version() {
 	local x
 	local l
 	local apt_cache
+	local msg
+	local p_list
+	local y
+
+	if [[ $1 = "i" ]]; then
+		msg="installed"
+		y="Installed:"
+	else
+		msg="candidate"
+		y="Candidate:"
+	fi
 
 	tmp=
-	x="*Version table:"
+	p_list=($2)																	# Put list of packages into an array
+	x="Version table:"
 	let count=1
-	num_pkg="$#"
-	apt_cache=$(apt-cache policy $@)											# Get APT policy for all packages
+	num_pkg="${#p_list[@]}"
+	apt_cache=$(apt-cache policy ${p_list[@]})									# Get APT policy for all packages
 	src_priority=$(apt-cache policy)											# Get list of sources and their priorities
-	for pkg in $@; do
-		echo "($count/$num_pkg) Getting candidate version for $pkg:"
+	for pkg in ${p_list[@]}; do
+		echo "($count/$num_pkg) Getting $msg version for $pkg:"
 		# We let APT tell us the version of the package to get by selecting
 		# the 'Candidate' version
 		policy=$(sed -n "/^${pkg%:*}:$/,/^[^ ]/ p" <<< "$apt_cache")
 		while read -r line; do
 			case $line in
-				*Candidate:*)
-					version=${line#Candidate: }									# Get candidate version
+				*${y}*)
+					version=${line#${y} }									# Get candidate version
 					# Some packages such as virtual packages will not return a version
 					# Any packages providing these 'virtual' or other such packages should
 					# already be in the list. We do not need to save them. These packages
 					# will be removed from the list by the sanitize_build_list function
 					[[ $version = "(none)" ]] && continue 2
 				;;
-				$x)
+				*${x})
 					v_list=${policy#*Version table:}							# Get list of versions and their priorities
 					priority=
 					while read -r line; do
@@ -687,26 +704,138 @@ move_files() {
 }
 
 cleanup() {
-	# We purge all build-dependencies that we install during the
-	# build process before upgrading so that any of these packages
-	# which may have been re-built does not get upgraded.
+	# Leave the system in the pristine state it was in before we
+	# started. This means that the list returned by:
+	#   dpkg --get-selections
+	# should be the same as the one we started off with after we
+	# complete the clean-up process
+
+	local c_install_list															# List of packages currently marked as 'install'
+	local c_deinstall_list															# List of packages currently marked as 'deinstall'
+	local i_list
+	local c_list
+	local i_count																	# Number of packages initially marked as 'install'
+	local c_count																	# Number of packages currently marked as 'install'
+	local count
+	declare -A i_pkg															# List of packages marked for re-installation
+
+	count_lines() {
+		# Count number of lines passed in via $1
+		let count=0
+		while read -r line; do
+			let count+=1
+		done <<< "$1"
+	}
 
 	echo -e "\nCleaning up..."
-	
-	$keep_source_opt || rm -rf $build_dir/*
-	
-	# Remove build-dependencies that we installed
+
+	$keep_source_opt || { echo -e "\nRemoving source files" ; rm -rf $build_dir/* ; }
+
+	# Remove build-dependencies that we installed during the build
+	# process but, do not remove any that's in the install_list
 	if [[ -s "$build_dep_fname" ]]; then
-		echo "The following build dependencies will be removed:"
-		sort -u "$build_dep_fname"
-		get_confirmation || return 100
-		if apt-get -y purge $(tr '\n' ' ' < "$build_dep_fname"); then
-			rm -f "$build_dep_fname"
-			# apt-get -y autoremove
-		else
-			return 200
+		tmp=
+		i_list=$(cut -d':' -f1 <<< "$install_list")									# Remove arch component
+		while read -r pkg; do
+			grep -q "^$pkg$" <<< "$i_list" || tmp="$tmp$pkg "
+		done <<< $(sort -u "$build_dep_fname")
+		if [[ -n $tmp ]]; then
+			echo -e "\nThe following build dependencies will be removed:\n\n$tmp"
+			if apt-get -y remove $tmp 2>&1; then
+				: #rm -f "$build_dep_fname"
+			else
+				echo -e "\nSome build dependencies were not removed"
+			fi
 		fi
 	fi
+
+	# Must be done in this order or else we purge the config files
+	# of some packages we will re-install. Do not call create_lists
+	# to recreate the list. The deinstall list must be re-created
+	# after and only after we re-install any removed packages
+	# TODO Try to install the same version as was previously installed.
+	#      If the version was moved out of the repo, then look for it in the local archives.
+	#      If it is not in the local archive, we have no choice but to install the version
+	#      from the repo, which most likely is an upgrade
+
+	echo -e "\nRe-install removed packages"
+	tmp=
+	if [[ $c_install_list != $install_list ]]; then
+		# If a package from install_list is not in the
+		# current install list, mark it for re-installation
+		c_install_list=$(dpkg --get-selections | grep -w install$ | cut -f1)			# Get list of currently installed packages
+		while read -r line; do
+			grep -q "^${line%=*}$" <<< "$c_install_list" || i_pkg[${line#*/}]+="${line%/*} "
+		done < "$install_list_fname"
+
+		echo -e "The following packages were removed during the build process and will now be re-installed:\n"
+		for rel in ${!i_pkg[@]}; do
+			echo -e "From $rel:\n\n${i_pkg[$rel]}\n\n"
+		done
+
+		# If a required dependent package was not in the install_list, APT
+		# will add this to the list. This can cause the final number of
+		# packages marked as 'install' to be greater that the initial number
+
+		# Install packages by release so that dependencies will be satisfied
+		for rel in ${!i_pkg[@]}; do
+			[[ $rel = "unknown" ]] && unset i_release || i_release="-t $rel"
+			apt-get $i_release -y install ${i_pkg[$rel]} 2>&1
+		done
+	else
+		echo "  No packages to re-install"
+	fi
+
+	echo -e "\nPurge removed packages"
+	tmp=
+	c_deinstall_list=$(dpkg --get-selections | grep -w deinstall$ | cut -f1)
+	# If a package from deinstall_list is in the current
+	# deinstall list, do not mark it for purging
+	if [[ $c_deinstall_list != $deinstall_list ]]; then
+		while read -r pkg; do
+			grep -q "^$pkg$" <<< "$deinstall_list" || tmp="$tmp$pkg "
+		done <<< "$c_deinstall_list"
+		[[ -n $tmp ]] && \
+		{ echo -e "\nThe configuration files of these packages will be removed:\n\n$tmp" ; apt-get -y purge $tmp 2>&1 ; }
+	else
+		echo "No packages to purge"
+	fi
+
+	# Check if we were successfull
+	# We succeeded if our install_list and deinstall_list would exactly
+	# match those produced by dpkg --get-selections at this point
+	# However, we indicate a failure even if the number of installed
+	# packages at this point is greater than what we started off with,
+	# simply because our aim was to restore the system to the state it
+	# was in when we started
+	echo -e "\nChecking if we were successfull..."
+
+	c_install_list=$(dpkg --get-selections | grep -w install$)
+
+	# Count number of currently installed packages
+	count_lines "$c_install_list"
+	let c_count=$count
+
+	# Count number of previously installed packages
+	count_lines "$install_list"
+	let i_count=$count
+
+	if (( $i_count < $c_count )); then
+		echo -e "  Failed\n    These additional packages were installed:"
+		i_list="$installed_list"
+		c_list="$c_install_list"
+	elif (( $i_count > $c_count )); then
+		echo -e "  Failed\n    These packages were not re-installed:"
+		i_list="$c_install_list"
+		c_list="$install_list"
+	else
+		echo "  Success"
+		return
+	fi
+
+	while read -r pkg; do
+		grep -q "^$pkg$" <<< "$i_list" || echo "      $pkg"
+	done <<< "$c_list"
 
 }
 
@@ -840,6 +969,13 @@ create_lists() {
 	# Check for packages in an unknown/broken state
 	broken_list=$(dpkg-query -f '${binary:Package} ${db:Status-Abbrev}\n' -W <<< $packages_list | grep R$ | cut -d' ' -f1)
 
+	# Save our install and deinstall lists should we break
+	# the system and need to restore it to it's former glory
+	get_package_version "i" "$install_list"
+	echo "$version_list" > "$install_list_fname"
+# 	echo "$install_list" > "$install_list_fname"
+	echo "$deinstall_list" > "$deinstall_list_fname"
+
 }
 
 create_pkg_depend_list() {
@@ -880,7 +1016,7 @@ create_pkg_depend_list() {
 
 	depend_list=$(tr ' ' '\n' <<< "$depend_list" | sort -u)	# Sort the list and remove duplicates
 
-	get_package_version $depend_list
+	get_package_version "c" "$depend_list"
 	build_list=$(echo -e "$version_list\n$build_list")	# Re-add the list of removed packages
 
 }
@@ -1251,7 +1387,7 @@ main() {
 		;;
 	esac
 
-	get_package_version $build_list
+	get_package_version "c" "$build_list"
 	build_list="$version_list"
 
 	# Get list of dependent packages
@@ -1321,14 +1457,6 @@ main() {
 
 	# Leave the system in a prestine state
 	cleanup
-	case $? in
-		100)
-			echo -e "\nKeeping build dependencies as requested"
-		;;
-		200)
-			echo -e "\nSome build dependencies were not removed"
-		;;
-	esac
 
 	# Install our newly built packages
 	install_package || echo -e "No packages to install/upgrade"
