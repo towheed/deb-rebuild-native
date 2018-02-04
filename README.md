@@ -54,13 +54,13 @@ Help is available by passing the -h or --help option (using the gain-root-comman
 	-k, --keep-source		Pass this option if you want to keep the downloaded source files.
 					All source files are removed by default after the build process completes.
 	
-	-b, --keep-dbgsym		Pass this option if you want to keep the dbgsym packages, which are built
-					by all sources. You do not need this unless you intend to debug and require
-					the debug symbols. If you do not know what this is all about, you do not need
-					the dbgsym packages. dbgsym packages are deleted by default after the build
-					process completes.
+	-b, --build-dbgsym		Pass this option if you want to build the dbgsym packages also.
+					You do not need this unless you intend to debug and require the debug symbols.
+					If you do not know what this is all about, you do not need the dbgsym packages.
 	
-	-v, --verbose			Show what is being done. All otput are shown by default.
+	-c, --run-checks		Run tests provided by the package build during the build process.
+	
+	-v, --verbose			Show what is being done. All output are shown by default.
 	
 	-r, --target-release=release	Pass this option to tell the build system, which Debian release you are building for.
 	
@@ -85,20 +85,58 @@ Help is available by passing the -h or --help option (using the gain-root-comman
 					command may be issued at any time to check that all packages are actually built.
 					Packages that have already been built, will not be rebuilt.
 	
+	repair				Repair the system if a crash occurred before the last invocation of the script
+					completed. This will attempt to restore the system to it's previous state.
+
 
 ### Logging
-
 All output from the script is logged. All logfiles are compressed with gzip. All logfile are kept in $HOME/rebuild-native/log. The main log (aptly named main.log.gz) log all output from the script, with the exception of the build output from the package builds. The build output are logged to src_name-src_version.log.gz, where src_name is the name of the source package built and the src_version is the version of the source package. Note though that the source names and version may not necessarily be similar in any way to the binary (.deb) packages built by them.
 
 To view a log file, eg main.log.gz, issue the command:
 
 	gunzip -c $HOME/rebuild-native/log/main.log.gz | less
 
-
 #### Other files
-
 A list of failed builds is kept in $HOME/rebuild-native/build.fail
 
-The list of installed build dependencies is kept in $HOME/rebuild-native/build.depend. Any build dependencies installed by the scripts are removed when the build process completes. If the scripts exits before this, you can manually clean your system of all installed build dependencies with the command (as root):
+The list of installed build dependencies is kept in $HOME/rebuild-native/build.depend. Any build dependencies installed by the scripts are removed when the build process completes.
 
-	apt-get purge $(tr '\n' ' ' < $HOME/rebuild-native/build.depend)
+The list of packages marked as 'install' before the build started is kept in $HOME/rebuild-native/install-list-before.list.
+
+The list of packages marked as 'deinstall' before the build started is kept in $HOME/rebuild-native/deinstall-list-before.list.
+
+
+### Emergency repair
+If a crash occurred before a previous invocation of the script completed, an attempt can be made to recover the system by passing the 'repair' command to the script:
+
+	./path/to/rebuild-native.sh repair
+
+The success of the repair depends on the existence of 3 files in $HOME/rebuild-native:
+
+	build.depend - List of build dependencies installed during the build process
+	install-list-before.list - List of packages marked as 'install' before the build process started
+	deinstall-list-before.list - List of packages marked as 'deinstall' before the build process started
+
+The first two files must exists or the repair command fails.
+
+#### Check if the repair command succeeded
+The repair command will indicate 'success' of 'fail' upon completion. A failure indication does not necessarily mean that the system is unusable, but simply that some packages may not have been re-installed and/or purged. You can check the level of success using the following commands:
+
+##### Check the logfile
+You can view the repair logs:
+
+	gunzip -c $HOME/rebuild-native/repair.log.gz | less
+
+or check the status of the packages on the system:
+
+	dpkg --get-selections | grep -w 'install$' | wc -l
+	wc -l $HOME/rebuild-native/install-list-before.list
+
+The first command will return the total number of packages currently marked as 'install' while the second will return the total number of packages that were marked as 'install' before the build process started. The aim of the repair command is to have these two numbers the same. If for some reason, the number of packages currently marked as 'install' is less, you can attempt to manually re-install those packages.
+
+##### Purge removed packages
+The repair command will attempt to purge all removed packages ie: remove their configuration files. All purged packages will be completely removed from the list of packages returned by:
+
+	dpkg --get-selections
+
+Any removed (not purged) packages will be marked as 'deinstall'. If you do not want the configuration files of these packages on your system you can manually purge those packages.
