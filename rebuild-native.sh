@@ -28,7 +28,7 @@ export PS4='+$LINENO: $FUNCNAME: '
 # TODO Ensure only one instance of this script is running
 
 # Declare our vars
-version="0.47.0-beta"									# Version information
+version="0.51.10-beta"									# Version information
 app_name="rebuild-native"								# Name of application
 march_opt="-march=native"								# gcc's march option
 mtune_opt="-mtune=native"								# gcc's mtune option
@@ -80,6 +80,7 @@ repo_dir="/srv/local-apt-repository"					# Local repo directory
 build_dep_fname="$HOME/$app_name/build.depend"			# List of build dependencies we installed
 build_fail_fname="$HOME/$app_name/build.fail"			# List of packages that failed to build
 main_log_fname="$log_dir/main.log"
+repair_log_fname="$log_dir/repair.log"
 install_list_fname="$main_dir/install-list-before.list"	# Our initial install_list
 deinstall_list_fname="$main_dir/deinstall-list-before.list"	# Our initial deinstall_list
 
@@ -92,7 +93,6 @@ show_help() {
 	
 	# TODO Add retry command to retry failed builds
 	# TODO Add simulate option
-	# TODO Add emergency repair command
 
 	[[ -n $1 ]] && echo -e "$1\n"
 	cat <<-END_HELP
@@ -141,6 +141,8 @@ show_help() {
 		world                                     - Rebuild the world (all installed packages)
 		                                            This may take days depending on the number of packages
 		retry                                     - Retry all failed builds (UNIMPLEMENTED)
+		repair                                    - Repair the system if a crashed occurred before the
+		                                            last invocation of the script completed
 
 END_HELP
 	exit 0
@@ -197,7 +199,7 @@ start_logfile() {
 	# TODO Needs refining
 	# TODO Acknowledge XON/XOFF when sent from kybd
 
-	trap "rm -f $tmp_dir/pipe$$; gzip -f $main_log_fname; exit" EXIT
+	trap "rm -f $tmp_dir/pipe$$; gzip -f $1; exit" EXIT
 	[[ ! -p $tmp_dir/pipe$$ ]] && mkfifo "$tmp_dir"/pipe$$
 	tee -a "$1" < "$tmp_dir"/pipe$$ &
 	logfile_pid=$!										# Save PID of background 'tee' process
@@ -717,7 +719,8 @@ cleanup() {
 	local i_count																	# Number of packages initially marked as 'install'
 	local c_count																	# Number of packages currently marked as 'install'
 	local count
-	declare -A i_pkg															# List of packages marked for re-installation
+	local i_release
+	declare -A i_pkg																# List of packages marked for re-installation
 
 	count_lines() {
 		# Count number of lines passed in via $1
@@ -760,10 +763,10 @@ cleanup() {
 
 	echo -e "\nRe-install removed packages"
 	tmp=
+	c_install_list=$(dpkg --get-selections | grep -w install$ | cut -f1)			# Get list of currently installed packages
 	if [[ $c_install_list != $install_list ]]; then
 		# If a package from install_list is not in the
 		# current install list, mark it for re-installation
-		c_install_list=$(dpkg --get-selections | grep -w install$ | cut -f1)			# Get list of currently installed packages
 		while read -r line; do
 			grep -q "^${line%=*}$" <<< "$c_install_list" || i_pkg[${line#*/}]+="${line%/*} "
 		done < "$install_list_fname"
@@ -973,7 +976,6 @@ create_lists() {
 	# the system and need to restore it to it's former glory
 	get_package_version "i" "$install_list"
 	echo "$version_list" > "$install_list_fname"
-# 	echo "$install_list" > "$install_list_fname"
 	echo "$deinstall_list" > "$deinstall_list_fname"
 
 }
@@ -1322,44 +1324,47 @@ main() {
 		fi
 	done < "$passwd_file"
 
-	# Check that we have the necessary external apps and packages installed
-	check_helper_apps || exit 1
+	# Do not run these functions if we are trying to repair the system
+	if [[ $1 != "repair" ]]; then
+		# Check that we have the necessary external apps and packages installed
+		check_helper_apps || exit 1
 
-	# Create directory structure
-	create_dirs_files
-	case $? in
-		100)
-			bail_out "Failed to create directory structure...bailing"
-		;;
-		150)
-			bail_out "Unable to locate $repo_dir...bailing"
-		;;
-		200)
-			bail_out "Failed to create $build_dep_fname...bailing"
-		;;
-		210)
-			bail_out "Failed to create $build_fail_fname...bailing"
-		;;
-		220)
-			bail_out "Failed to create $main_log_fname...bailing"
-	esac
+		# Create directory structure
+		create_dirs_files
+		case $? in
+			100)
+				bail_out "Failed to create directory structure...bailing"
+			;;
+			150)
+				bail_out "Unable to locate $repo_dir...bailing"
+			;;
+			200)
+				bail_out "Failed to create $build_dep_fname...bailing"
+			;;
+			210)
+				bail_out "Failed to create $build_fail_fname...bailing"
+			;;
+			220)
+				bail_out "Failed to create $main_log_fname...bailing"
+		esac
 
-	# Start the main logfile
-	start_logfile "$main_log_fname"
+		# Start the main logfile
+		start_logfile "$main_log_fname"
 
-	# Make sure we can download sources
-	check_data_sources || exit 1
+		# Make sure we can download sources
+		check_data_sources || exit 1
 
-	check_data_sources_deb822 || exit 1
+		check_data_sources_deb822 || exit 1
 
-	# Resynchronize the package index files
-	echo "Resynchronizing the package index files"
-	apt-get update 2>&1
+		# Resynchronize the package index files
+		echo "Resynchronizing the package index files"
+		apt-get update 2>&1
 
-	# Create our lists of package selection states
-	create_lists
-	[[ -n $broken_list ]] && \
-	bail_out "Fix these package(s) that are in an unknown/broken state:\n$broken_list"
+		# Create our lists of package selection states
+		create_lists
+		[[ -n $broken_list ]] && \
+		bail_out "Fix these package(s) that are in an unknown/broken state:\n$broken_list"
+	fi
 
 	# Process the parsed command and any arguments
 	case $1 in
@@ -1384,6 +1389,20 @@ main() {
 		world)
 			depend_opt=false							# No need to pull in dependencies for world
 			build_list="$install_list"
+		;;
+		repair)
+			# Try to repair the system if a crashed occurred
+			# before the last invocation of the script completed
+			# Any options passed with this command are ignored
+			[[ ! -s $install_list_fname ]] && \
+			{ echo "'$install_list_fname' does not exists or it is empty...bailing" ; exit 1 ; }
+			# Get list of packages previously marked as 'install' and 'deinstall'
+			install_list=$(cut -d"=" -f1 "$install_list_fname")
+			[[ -s $deinstall_list_fname ]] && deinstall_list=$(<"$deinstall_list_fname")
+			keep_source_opt=true						# Do not remove any source files
+			start_logfile "$repair_log_fname"			# Start the main logfile
+			cleanup
+			exit
 		;;
 	esac
 
@@ -1469,9 +1488,9 @@ main() {
 [[ $UID != "0" ]] && show_help "Must be run with root privileges. See 'Usage' below"
 
 # Parse options and commands
-cmds="install upgrade world retry"
+cmds="install upgrade world retry repair"
 march=false
-while true; do
+while : ; do
 	do_shift=false
 	opt_arg=
 	msg=
@@ -1486,7 +1505,7 @@ while true; do
 			# If $2 does not start with a'-' or is not one
 			# of the commands, then it's a possible argument
 			if [[ ${2:0:1} != "-" ]] && \
-			   [[ $2 != "install" && $2 != "upgrade" && $2 != "world" && $2 != "retry" ]]; then
+			   [[ $2 != "install" && $2 != "upgrade" && $2 != "world" && $2 != "retry" && $2 != "repair" ]]; then
 			   { opt_arg=$2 ; do_shift=true ; }
 			fi
 		;;
@@ -1494,7 +1513,7 @@ while true; do
 			opt=${1:1:1}									# Extract short option
 			opt_arg=${1:2}									# Extract argument
 		;;
-		install|upgrade|world)								# Command
+		install|upgrade|world|repair)						# Command
 			if [[ $1 == "install" && -z $2 ]]; then
 				show_help "Command 'install' needs at least one package to build and install"
 			else
