@@ -761,6 +761,9 @@ cleanup() {
 	#      If it is not in the local archive, we have no choice but to install the version
 	#      from the repo, which most likely is an upgrade
 
+	# BUG This fails if the version in the repo changes during the build process and now
+	#      This will be fixed after the above 'TODO' is completed
+
 	echo -e "\nRe-install removed packages"
 	tmp=
 	c_install_list=$(dpkg --get-selections | grep -w install$ | cut -f1)			# Get list of currently installed packages
