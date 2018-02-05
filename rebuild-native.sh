@@ -745,7 +745,7 @@ cleanup() {
 		if [[ -n $tmp ]]; then
 			echo -e "\nThe following build dependencies will be removed:\n\n$tmp"
 			if apt-get -y remove $tmp 2>&1; then
-				: #rm -f "$build_dep_fname"
+				rm -f "$build_dep_fname"
 			else
 				echo -e "\nSome build dependencies were not removed"
 			fi
@@ -761,9 +761,6 @@ cleanup() {
 	#      If it is not in the local archive, we have no choice but to install the version
 	#      from the repo, which most likely is an upgrade
 
-	# BUG This fails if the version in the repo changes during the build process and now
-	#      This will be fixed after the above 'TODO' is completed
-
 	echo -e "\nRe-install removed packages"
 	tmp=
 	c_install_list=$(dpkg --get-selections | grep -w install$ | cut -f1)			# Get list of currently installed packages
@@ -771,10 +768,11 @@ cleanup() {
 		# If a package from install_list is not in the
 		# current install list, mark it for re-installation
 		while read -r line; do
-			grep -q "^${line%=*}$" <<< "$c_install_list" || i_pkg[${line#*/}]+="${line%/*} "
+			grep -q "^${line%=*}$" <<< "$c_install_list" || i_pkg[${line#*/}]+="${line%=*} "
 		done < "$install_list_fname"
 
 		echo -e "The following packages were removed during the build process and will now be re-installed:\n"
+		tmp=
 		for rel in ${!i_pkg[@]}; do
 			echo -e "From $rel:\n\n${i_pkg[$rel]}\n\n"
 		done
