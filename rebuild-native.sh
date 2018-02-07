@@ -85,6 +85,7 @@ install_list_fname="$main_dir/install-list-before.list"	# Our initial install_li
 deinstall_list_fname="$main_dir/deinstall-list-before.list"	# Our initial deinstall_list
 
 logfile_pid=""											# PID of the logfile process
+logfile=""
 
 show_help() {
 	# Show help message and exit
@@ -199,7 +200,9 @@ start_logfile() {
 	# TODO Needs refining
 	# TODO Acknowledge XON/XOFF when sent from kybd
 
-	trap "rm -f $tmp_dir/pipe$$; gzip -f $1; exit" EXIT
+	logfile="$1"
+	
+	trap "rm -f $tmp_dir/pipe$$; gzip -f $logfile; exit" EXIT
 	[[ ! -p $tmp_dir/pipe$$ ]] && mkfifo "$tmp_dir"/pipe$$
 	tee -a "$1" < "$tmp_dir"/pipe$$ &
 	logfile_pid=$!										# Save PID of background 'tee' process
@@ -809,6 +812,13 @@ cleanup() {
 	else
 		echo "No packages to purge"
 	fi
+
+	# Some scripts that uses an ncurses interface for user input
+	# may mess with the terminal output. Reset and clear the terminal
+	# so preceding messages are properly outputted.
+	stop_logfile														# Stop the logfile
+	echo -e "\ec\e[2J"													# Reset and clear terminal
+	start_logfile "$logfile"											# Restart the logfile
 
 	# Check if we were successfull
 	# We succeeded if our install_list and deinstall_list would exactly
