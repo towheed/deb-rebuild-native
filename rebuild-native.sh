@@ -28,7 +28,7 @@ export PS4='+$LINENO: $FUNCNAME: '
 # TODO Ensure only one instance of this script is running
 
 # Declare our vars
-version="0.51.10-beta"									# Version information
+version="0.51.20-beta"									# Version information
 app_name="rebuild-native"								# Name of application
 march_opt="-march=native"								# gcc's march option
 mtune_opt="-mtune=native"								# gcc's mtune option
@@ -625,6 +625,11 @@ build_package() {
 		# Do not do this if we are chrooted or in a container
 		[[ -w /proc/sys/vm/drop_caches ]] && \
 		sync && echo 3 > /proc/sys/vm/drop_caches
+		
+		# Some build output, messes with the terminal settings. This is true
+		# for terminals on /dev/pts/x but may also occur on /dev/ttyx. We handle
+		# this generically by resetting and clearing the terminal after each build
+		echo -e "\ec\e[2J"
 
 	done
 
