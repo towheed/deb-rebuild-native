@@ -696,7 +696,7 @@ move_files() {
 	cmd_status="0"
 	if [[ -d $repo_dir ]]; then
 		echo -e "\nMoving newly built packages to local repository:"
-		for file in $build_dir/{*$suffix*.{deb,dsc,changes,debian.tar*,.diff*},*orig*}; do
+		for file in $build_dir/{*$suffix*.{deb,dsc,changes,debian.tar*,diff*},*orig*}; do
 			echo "  Moving $file to $repo_dir"
 			mv -f -t "$repo_dir" "$file" && \
 			echo "   Success" || \
