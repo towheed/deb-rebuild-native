@@ -524,7 +524,8 @@ build_package() {
 	export DEB_CXXFLAGS_APPEND="$DEB_CFLAGS_APPEND"
 	export DEB_OBJCFLAGS_APPEND="$DEB_CFLAGS_APPEND"
 	export DEB_OBJCXXFLAGS_APPEND="$DEB_CXXFLAGS_APPEND"
-	$checks_opt || export DEB_BUILD_OPTIONS="nocheck "
+	export DEB_BUILD_OPTIONS="nodoc "							# Do not build documentation
+	$checks_opt || export DEB_BUILD_OPTIONS+="nocheck "
 	$dbgsym_opt || export DEB_BUILD_OPTIONS+="noddebs"
 	$silent_opt && export MAKEFLAGS="-s"
 
@@ -1111,6 +1112,7 @@ sanitize_build_list() {
 	# NOTE This fails if the packages are not tagged
 
 	tags=$(debtags tagsearch metapackage dummy | cut -d'-' -f1)
+	tags+=" devel::doc made-of::info made-of::pdf role::documentation"			# Remove documentation pkgs
 
 	tmp=
 	let count=0
