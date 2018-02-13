@@ -88,6 +88,7 @@ Help is available by passing the -h or --help option (using the gain-root-comman
 	repair				Repair the system if a crash occurred before the last invocation of the script
 					completed. This will attempt to restore the system to it's previous state.
 
+###### Note on rebuilding *world*: I'll highly recommend that you rebuild world in a containerized or chrooted system.
 
 ### Logging
 All output from the script is logged. All logfiles are compressed with gzip. All logfile are kept in $HOME/rebuild-native/log. The main log (aptly named main.log.gz) log all output from the script, with the exception of the build output from the package builds. The build output are logged to src_name-src_version.log.gz, where src_name is the name of the source package built and the src_version is the version of the source package. Note though that the source names and version may not necessarily be similar in any way to the binary (.deb) packages built by them.
@@ -140,3 +141,7 @@ The repair command will attempt to purge all removed packages ie: remove their c
 	dpkg --get-selections
 
 Any removed (not purged) packages will be marked as 'deinstall'. If you do not want the configuration files of these packages on your system you can manually purge those packages.
+
+
+## Issues/BUGS
+
