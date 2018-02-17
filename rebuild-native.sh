@@ -923,30 +923,40 @@ check_helper_apps() {
 	local found
 	local bail
 	local packages
-	local app
-	local status
-	
+	local i_list
+	declare -A pkg_app_map							# Array of helper apps and their corresponding packages
+
 	found=true
 	bail=false
-	packages=(grep sed coreutils coreutils coreutils coreutils coreutils coreutils coreutils coreutils coreutils coreutils coreutils coreutils coreutils coreutils coreutils coreutils coreutils login gzip procps)
-	app=(grep sed date cut tail cp sort cat mkdir rm head tail tee true touch chown mkdir mkfifo false su gzip kill)
+	pkg_app_map["grep"]="grep"
+	pkg_app_map["sed"]="sed"
+	pkg_app_map["login"]="su"
+	pkg_app_map["gzip"]="gzip"
+	pkg_app_map["procps"]="kill"
+	pkg_app_map["coreutils"]="date cut cp sort cat mkdir rm tee touch chown mkdir mkfifo"
 
-	# Check for external programs on $PATH. We do not use 'which' since this
-	# is specific to the 'debianutils' package, which even though is marked as a required package,
+	# Check for external programs on $PATH. We do not use 'which' since this is specific
+	# to the 'debianutils' package, which even though is marked as a required package,
 	# it may or may not be installed or even broken, or the user may have screwed-up $PATH
 	# In any case, we play it safe and do it the old fashion way
-	for idx in "${!app[@]}"; do
-		for path in ${PATH//:/ }; do
-			if [[ -e "$path/${app[idx]}" ]]; then
-				found=true
-				break								# Found the app, check next one
-			else
-				found=false
-			fi
+	# NOTE: This is mostly unnecessary code, but we play it safe so we do not get
+	#       any nasty surprises halfway through the script
+
+	for key in ${!pkg_app_map[@]}; do
+		for app in ${pkg_app_map["$key"]}; do
+			for path in ${PATH//:/ }; do
+				if [[ -e "$path/$app" ]]; then
+					found=true
+					break							# Found the app, check next one
+				else
+					found=false
+				fi
+			done
+			$found || \
+			{ bail=true ; echo "Cannot find '$app'. Please install/re-install the '$key' package or check your PATH" ; }
 		done
-		$found || \
-		{ bail=true ; echo "Cannot find ${app[idx]}. Please install/re-install the ${packages[idx]} package or check your PATH" ; }
 	done
+	unset pkg_app_map
 
 	$bail && return 100								# Return 100 to main() if we did not find any of the required apps
 
@@ -963,17 +973,15 @@ check_helper_apps() {
 		tmp=
 		tmp=$(dpkg -s $pkg 2>/dev/null)
 		# Nothing is returned for an uninstalled package
-		[[ -z $tmp ]] && { found=false ; echo "Please install the $pkg package" ; continue ; }
+		[[ -z $tmp ]] && i_list+="$pkg "
+
 		while read -r line; do
-			if [[ $line = Status:* ]]; then
-				[[ $line != "Status: install ok installed" ]] && \
-				{ found=false ; echo "Please install the $pkg package" ; }
-				continue 2
-			fi
+			[[ $line = Status:* && $line != "Status: install ok installed" ]] && { i_list+="$pkg " ; continue 2 ; }
 		done <<< "$tmp"
 	done
 
-	$found || return 100							# Return 100 to main() if we did not find any of the required packages
+	# Return 200 to main() if we did not find any of the required packages
+	[[ -n $i_list ]] && { tmp="$i_list" ; return 200 ; }
 
 }
 
@@ -1345,7 +1353,17 @@ main() {
 	# Do not run these functions if we are trying to repair the system
 	if [[ $1 != "repair" ]]; then
 		# Check that we have the necessary external apps and packages installed
-		check_helper_apps || exit 1
+		check_helper_apps
+		case $? in
+			100)
+				exit 1
+			;;
+			200)
+				# repo_dir must exist before installing the local-apt-repository package
+				[[ $tmp = *local-apt-repository* ]] && { mkdir -p "$repo_dir" 2>/dev/null || exit 1 ; }
+				apt-get install $tmp || exit 1			# Install needed packages
+			;;
+		esac
 
 		# Create directory structure
 		create_dirs_files
