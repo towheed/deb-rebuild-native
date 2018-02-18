@@ -28,7 +28,7 @@ export PS4='+$LINENO: $FUNCNAME: '
 # TODO Ensure only one instance of this script is running
 
 # Declare our vars
-version="0.60.0-beta"									# Version information
+version="0.60.1-beta"									# Version information
 app_name="deb-rebuild-native"							# Name of application
 
 march_opt="-march=native"								# gcc's march option
