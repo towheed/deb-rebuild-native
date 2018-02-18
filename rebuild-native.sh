@@ -28,8 +28,9 @@ export PS4='+$LINENO: $FUNCNAME: '
 # TODO Ensure only one instance of this script is running
 
 # Declare our vars
-version="0.51.20-beta"									# Version information
-app_name="rebuild-native"								# Name of application
+version="0.60.0-beta"									# Version information
+app_name="deb-rebuild-native"							# Name of application
+
 march_opt="-march=native"								# gcc's march option
 mtune_opt="-mtune=native"								# gcc's mtune option
 optimize_opt="-O2"										# gcc's optimization level
@@ -1065,7 +1066,6 @@ create_dirs_files() {
 	#            |--build.depend
 	#            |--build.fail
 
-	local cmd_status
 	local dir_list
 
 	dir_list="$backup_dir $build_dir $buildinfo_dir $log_dir $tmp_dir"
@@ -1076,7 +1076,7 @@ create_dirs_files() {
 	done
 
 	[[ ! -d $repo_dir ]] && return 150								# Return 150 if /srv/local-apt-repository does not exist
-	
+
 	rm -f "$build_fail_fname" "$main_log_fname" "$tmp_dir"/pipe*
 
 	touch "$build_dep_fname" 2>/dev/null || return 200				# Do not delete build.depend if it exists

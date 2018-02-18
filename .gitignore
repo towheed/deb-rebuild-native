@@ -1,0 +1,8 @@
+# Ignore everything
+*
+# Except these files
+!.gitignore
+!LICENSE
+!README.md
+!rebuild-native.sh
+!*/
